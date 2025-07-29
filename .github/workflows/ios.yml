@@ -39,6 +39,16 @@ jobs:
           ./package_scripts/ios/xcodebuildiOS.sh -o ios_build
         shell: bash
 
+      - name: list-schemes-and-targets
+        run: |
+          cd project/ios
+          echo "=== Available Schemes ==="
+          xcodebuild -list -project MNN.xcodeproj
+          echo ""
+          echo "=== SDK Information ==="
+          xcodebuild -showsdks | grep -i ios
+        shell: bash
+
       - name: build-demo-app
         run: |
           cd project/ios
@@ -46,18 +56,29 @@ jobs:
           xcodebuild build \
             -project MNN.xcodeproj \
             -scheme demo \
-            -destination "platform=iOS,id=dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder,name=Any iOS Device" \
+            -sdk iphoneos \
             -configuration Release \
             SYMROOT=build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS="arm64"
           
-          # 手动创建 IPA 包
-          mkdir -p Payload
-          cp -R build/Release-iphoneos/demo.app Payload/
-          zip -r demo.ipa Payload/
-          rm -rf Payload
+          # 检查构建结果
+          echo "=== Demo Build Output ==="
+          ls -la build/Release-iphoneos/ || echo "Release-iphoneos directory not found"
+          
+          # 手动创建 IPA 包（如果构建成功）
+          if [ -d "build/Release-iphoneos/demo.app" ]; then
+            mkdir -p Payload
+            cp -R build/Release-iphoneos/demo.app Payload/
+            zip -r demo.ipa Payload/
+            rm -rf Payload
+            echo "✅ Demo IPA created successfully"
+          else
+            echo "❌ Demo app not found, skipping IPA creation"
+          fi
         shell: bash
 
       - name: build-playground-app  
@@ -67,18 +88,29 @@ jobs:
           xcodebuild build \
             -project MNN.xcodeproj \
             -scheme Playground \
-            -destination "platform=iOS,id=dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder,name=Any iOS Device" \
+            -sdk iphoneos \
             -configuration Release \
             SYMROOT=build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS="arm64"
           
-          # 手动创建 IPA 包
-          mkdir -p Payload
-          cp -R build/Release-iphoneos/Playground.app Payload/
-          zip -r Playground.ipa Payload/
-          rm -rf Payload
+          # 检查构建结果
+          echo "=== Playground Build Output ==="
+          ls -la build/Release-iphoneos/ || echo "Release-iphoneos directory not found"
+          
+          # 手动创建 IPA 包（如果构建成功）
+          if [ -d "build/Release-iphoneos/Playground.app" ]; then
+            mkdir -p Payload
+            cp -R build/Release-iphoneos/Playground.app Payload/
+            zip -r Playground.ipa Payload/
+            rm -rf Payload
+            echo "✅ Playground IPA created successfully"
+          else
+            echo "❌ Playground app not found, skipping IPA creation"
+          fi
         shell: bash
 
       - name: show-framework
