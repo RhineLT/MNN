@@ -29,7 +29,7 @@ jobs:
   ios_build:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
 
@@ -97,7 +97,7 @@ jobs:
             ls -lh project/ios/build/Release-iphoneos/ || echo "Playground build not found"
 
       - name: upload-ios-apps
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ios-apps
           path: |
