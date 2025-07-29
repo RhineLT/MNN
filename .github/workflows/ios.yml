@@ -39,10 +39,101 @@ jobs:
           ./package_scripts/ios/xcodebuildiOS.sh -o ios_build
         shell: bash
 
+      - name: build-demo-app
+        run: |
+          cd project/ios
+          # 构建 demo 应用程序
+          xcodebuild build \
+            -project MNN.xcodeproj \
+            -scheme demo \
+            -destination "platform=iOS,id=dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder,name=Any iOS Device" \
+            -configuration Release \
+            SYMROOT=build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+          
+          # 手动创建 IPA 包
+          mkdir -p Payload
+          cp -R build/Release-iphoneos/demo.app Payload/
+          zip -r demo.ipa Payload/
+          rm -rf Payload
+        shell: bash
+
+      - name: build-playground-app  
+        run: |
+          cd project/ios
+          # 构建 Playground 应用程序
+          xcodebuild build \
+            -project MNN.xcodeproj \
+            -scheme Playground \
+            -destination "platform=iOS,id=dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder,name=Any iOS Device" \
+            -configuration Release \
+            SYMROOT=build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+          
+          # 手动创建 IPA 包
+          mkdir -p Payload
+          cp -R build/Release-iphoneos/Playground.app Payload/
+          zip -r Playground.ipa Payload/
+          rm -rf Payload
+        shell: bash
+
       - name: show-framework
         run: |
             ls -lh ios_build
 
+      - name: show-generated-apps
+        run: |
+            echo "=== Framework Build ==="
+            ls -lh ios_build/
+            echo "=== Demo App ==="
+            ls -lh project/ios/demo.ipa || echo "Demo IPA not found"
+            ls -lh project/ios/build/Release-iphoneos/ || echo "Demo build not found"
+            echo "=== Playground App ==="
+            ls -lh project/ios/Playground.ipa || echo "Playground IPA not found"
+            ls -lh project/ios/build/Release-iphoneos/ || echo "Playground build not found"
+
+      - name: upload-ios-apps
+        uses: actions/upload-artifact@v3
+        with:
+          name: ios-apps
+          path: |
+            project/ios/*.ipa
+            ios_build/
+          if-no-files-found: warn
+
+      - name: installation-instructions
+        run: |
+          echo "📱 iOS Installation Instructions:"
+          echo "=================================="
+          echo ""
+          echo "📦 生成的文件："
+          echo "  • MNN.framework - MNN框架库"
+          echo "  • demo.ipa - 演示应用程序"
+          echo "  • Playground.ipa - 测试应用程序"
+          echo ""
+          echo "🔧 安装方法："
+          echo "  1. 通过 Xcode 安装："
+          echo "     - 在 Xcode 中打开 'Window' > 'Devices and Simulators'"
+          echo "     - 选择你的设备"
+          echo "     - 将 .ipa 文件拖拽到 'Installed Apps' 区域"
+          echo ""
+          echo "  2. 通过命令行安装 (需要ios-deploy)："
+          echo "     npm install -g ios-deploy"
+          echo "     ios-deploy --bundle demo.ipa"
+          echo ""
+          echo "  3. 通过第三方工具："
+          echo "     - 使用 3uTools, iMazing 等工具安装"
+          echo "     - 使用 AltStore (需要开发者账号)"
+          echo ""
+          echo "⚠️  注意事项："
+          echo "  • 这些应用没有代码签名，只能在越狱设备或开发设备上安装"
+          echo "  • 需要信任开发者证书才能运行"
+          echo "  • 在设置 > 通用 > VPN与设备管理 中信任应用"
 
 
-            
+
+
