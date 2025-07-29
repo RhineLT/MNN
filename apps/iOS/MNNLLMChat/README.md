@@ -115,6 +115,39 @@ Additionally, the app supports edge-side usage of DeepSeek with Think mode:
 
     Wait for the Swift Package to finish downloading before building.
 
+## 🚀 Automated Build with GitHub Actions
+
+We provide a GitHub Actions workflow for automated iOS app building that generates installable IPA files.
+
+### Quick Start (No Certificate Required)
+For testing builds without code signing:
+1. Fork this repository
+2. Go to Actions → "iOS App Build and Release" → "Run workflow"
+3. Download the build artifacts
+
+### Production Build (Certificate Required)
+To generate installable IPA files, configure these GitHub Secrets:
+- `APPLE_TEAM_ID`: Your 10-digit Apple Team ID
+- `IOS_CERTIFICATE_P12_BASE64`: Base64-encoded P12 certificate
+- `CERTIFICATE_PASSWORD`: P12 certificate password
+- `KEYCHAIN_PASSWORD`: Any strong password for temporary keychain
+
+```bash
+# Convert P12 certificate to Base64
+base64 -i YourCertificate.p12 | pbcopy
+```
+
+### Release Creation
+Create and push a tag to automatically create a GitHub Release:
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+For detailed instructions, see:
+- [Quick Start Guide](../../docs/ios-app-quick-start.md)
+- [Complete Build Guide](../../docs/ios-app-build-guide.md)
+
 ## Notes
 
 Due to memory limitations on iPhones, it is recommended to use models with 7B parameters or fewer to avoid memory-related crashes.

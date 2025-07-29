@@ -1,0 +1,266 @@
+name: iOS App Build and Release
+
+on:
+  push:
+    branches:
+      - master
+      - 'feature/**'
+    paths:
+      - 'apps/iOS/MNNLLMChat/**'
+      - 'source/**'
+      - 'express/**'
+      - '.github/workflows/ios-app-build.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'apps/iOS/MNNLLMChat/**'
+      - 'source/**'
+      - 'express/**'
+  workflow_dispatch: # 允许手动触发
+
+concurrency:
+  group: ios-app-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  XCODE_VERSION: '15.0'
+  IOS_DEPLOYMENT_TARGET: '14.0'
+
+jobs:
+  build-ios-app:
+    runs-on: macos-14
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          brew install coreutils
+
+      - name: Build MNN Framework
+        run: |
+          echo "Building MNN Framework for iOS..."
+          sh package_scripts/ios/buildiOS.sh "
+          -DMNN_ARM82=ON
+          -DMNN_LOW_MEMORY=ON
+          -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
+          -DMNN_BUILD_LLM=ON
+          -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON
+          -DMNN_METAL=ON
+          -DMNN_BUILD_DIFFUSION=ON
+          -DMNN_OPENCL=OFF
+          -DMNN_SEP_BUILD=OFF
+          -DLLM_SUPPORT_AUDIO=ON
+          -DMNN_BUILD_AUDIO=ON
+          -DLLM_SUPPORT_VISION=ON
+          -DMNN_BUILD_OPENCV=ON
+          -DMNN_IMGCODECS=ON
+          "
+
+      - name: Copy MNN Framework to iOS project
+        run: |
+          echo "Copying MNN.framework to iOS project..."
+          if [ -d "MNN-iOS-CPU-GPU/Static/MNN.framework" ]; then
+            cp -R MNN-iOS-CPU-GPU/Static/MNN.framework apps/iOS/MNNLLMChat/
+            echo "MNN.framework copied successfully"
+          else
+            echo "MNN.framework not found, checking other locations..."
+            find . -name "MNN.framework" -type d | head -5
+            # 尝试其他可能的位置
+            if [ -d "ios_build/MNN.framework" ]; then
+              cp -R ios_build/MNN.framework apps/iOS/MNNLLMChat/
+            elif [ -d "build/MNN.framework" ]; then
+              cp -R build/MNN.framework apps/iOS/MNNLLMChat/
+            else
+              echo "Error: MNN.framework not found in any expected location"
+              exit 1
+            fi
+          fi
+
+      - name: Resolve Swift Package Dependencies
+        run: |
+          cd apps/iOS/MNNLLMChat
+          xcodebuild -resolvePackageDependencies -project MNNLLMiOS.xcodeproj
+
+      - name: Create Export Options Plist
+        run: |
+          cd apps/iOS/MNNLLMChat
+          cat > ExportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>teamID</key>
+              <string>\${{ secrets.APPLE_TEAM_ID }}</string>
+              <key>signingStyle</key>
+              <string>automatic</string>
+              <key>stripSwiftSymbols</key>
+              <true/>
+              <key>thinning</key>
+              <string>&lt;none&gt;</string>
+              <key>uploadBitcode</key>
+              <false/>
+              <key>uploadSymbols</key>
+              <true/>
+              <key>compileBitcode</key>
+              <false/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Import Code Signing Certificate
+        if: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 != '' }}
+        run: |
+          # 创建临时keychain
+          security create-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          
+          # 导入证书
+          echo "${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}" | base64 --decode > certificate.p12
+          security import certificate.p12 -k build.keychain -P "${{ secrets.CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+          
+          # 导入provisioning profile
+          if [ -n "${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}" ]; then
+            mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+            echo "${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+          fi
+
+      - name: Build iOS App (Archive)
+        run: |
+          cd apps/iOS/MNNLLMChat
+          
+          # 构建 archive
+          xcodebuild archive \
+            -project MNNLLMiOS.xcodeproj \
+            -scheme MNNLLMiOS \
+            -destination "generic/platform=iOS" \
+            -archivePath MNNLLMiOS.xcarchive \
+            -configuration Release \
+            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            CODE_SIGN_STYLE=Automatic \
+            -allowProvisioningUpdates
+
+      - name: Export IPA
+        if: ${{ secrets.APPLE_TEAM_ID != '' }}
+        run: |
+          cd apps/iOS/MNNLLMChat
+          
+          # 导出 IPA
+          xcodebuild -exportArchive \
+            -archivePath MNNLLMiOS.xcarchive \
+            -exportPath export \
+            -exportOptionsPlist ExportOptions.plist \
+            -allowProvisioningUpdates
+
+      - name: Build iOS App (Build Only - for testing without certificates)
+        if: ${{ secrets.APPLE_TEAM_ID == '' }}
+        run: |
+          cd apps/iOS/MNNLLMChat
+          echo "Building without code signing for testing purposes..."
+          
+          xcodebuild build \
+            -project MNNLLMiOS.xcodeproj \
+            -scheme MNNLLMiOS \
+            -destination "generic/platform=iOS" \
+            -configuration Release \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Prepare artifacts
+        run: |
+          cd apps/iOS/MNNLLMChat
+          
+          # 创建artifacts目录
+          mkdir -p artifacts
+          
+          # 如果IPA存在，复制它
+          if [ -f "export/MNNLLMiOS.ipa" ]; then
+            cp export/MNNLLMiOS.ipa artifacts/
+            echo "IPA file created: MNNLLMiOS.ipa"
+          fi
+          
+          # 复制 archive
+          if [ -d "MNNLLMiOS.xcarchive" ]; then
+            zip -r artifacts/MNNLLMiOS.xcarchive.zip MNNLLMiOS.xcarchive
+            echo "Archive created: MNNLLMiOS.xcarchive.zip"
+          fi
+          
+          # 创建构建信息文件
+          cat > artifacts/build-info.txt << EOF
+          Build Date: $(date)
+          Commit SHA: ${{ github.sha }}
+          Branch: ${{ github.ref_name }}
+          Xcode Version: ${{ env.XCODE_VERSION }}
+          iOS Deployment Target: ${{ env.IOS_DEPLOYMENT_TARGET }}
+          EOF
+          
+          # 列出artifacts
+          ls -la artifacts/
+
+      - name: Upload IPA Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MNNLLMiOS-${{ github.sha }}
+          path: apps/iOS/MNNLLMChat/artifacts/
+          retention-days: 30
+
+      - name: Create Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/') && success()
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            apps/iOS/MNNLLMChat/artifacts/MNNLLMiOS.ipa
+            apps/iOS/MNNLLMChat/artifacts/MNNLLMiOS.xcarchive.zip
+          tag_name: ${{ github.ref_name }}
+          name: MNN iOS App ${{ github.ref_name }}
+          body: |
+            ## MNN iOS App Release
+            
+            ### 安装说明
+            1. 下载 `MNNLLMiOS.ipa` 文件
+            2. 使用 Xcode、TestFlight 或第三方工具安装到设备
+            3. 如果是开发版本，需要信任开发者证书
+            
+            ### 构建信息
+            - Commit: ${{ github.sha }}
+            - 构建日期: ${{ github.run_number }}
+            - Xcode版本: ${{ env.XCODE_VERSION }}
+            
+            ### 系统要求
+            - iOS ${{ env.IOS_DEPLOYMENT_TARGET }} 或更高版本
+            - 推荐使用7B参数或更小的模型以避免内存问题
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # 清理临时文件
+          rm -f apps/iOS/MNNLLMChat/certificate.p12
+          
+          # 删除临时keychain
+          if security list-keychains | grep -q "build.keychain"; then
+            security delete-keychain build.keychain
+          fi
