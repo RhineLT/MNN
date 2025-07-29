@@ -132,6 +132,61 @@ jobs:
         shell: bash
         continue-on-error: true
 
+      - name: build-mnnllmchat-app
+        run: |
+          cd apps/iOS/MNNLLMChat
+          
+          echo "=== Building MNNLLMChat iOS App ==="
+          
+          # 首先确保 MNN.framework 可用
+          if [ -d "../../../ios_build/MNN.framework" ]; then
+            echo "✅ MNN.framework found, copying to MNNLLMChat project"
+            cp -R ../../../ios_build/MNN.framework ./MNN.framework
+          else
+            echo "⚠️ MNN.framework not found in ios_build, checking project/ios build"
+            if [ -d "../../../project/ios/build/Release-iphoneos/MNN.framework" ]; then
+              cp -R ../../../project/ios/build/Release-iphoneos/MNN.framework ./MNN.framework
+              echo "✅ Copied MNN.framework from project/ios build"
+            else
+              echo "❌ MNN.framework not found, MNNLLMChat build may fail"
+            fi
+          fi
+          
+          # 构建 MNNLLMChat 应用程序
+          xcodebuild build \
+            -project MNNLLMiOS.xcodeproj \
+            -scheme MNNLLMiOS \
+            -sdk iphoneos \
+            -configuration Release \
+            SYMROOT=build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS="arm64" \
+            IPHONEOS_DEPLOYMENT_TARGET=12.0
+          
+          # 检查构建结果
+          echo "=== MNNLLMChat Build Output ==="
+          ls -la build/Release-iphoneos/ || echo "Release-iphoneos directory not found"
+          
+          # 手动创建 IPA 包（如果构建成功）
+          if [ -d "build/Release-iphoneos/MNNLLMiOS.app" ]; then
+            mkdir -p Payload
+            cp -R build/Release-iphoneos/MNNLLMiOS.app Payload/
+            zip -r MNNLLMChat.ipa Payload/
+            rm -rf Payload
+            echo "✅ MNNLLMChat IPA created successfully"
+            
+            # 移动到主目录以便上传
+            mv MNNLLMChat.ipa ../../../project/ios/
+          else
+            echo "❌ MNNLLMiOS.app not found, but continuing..."
+            echo "📋 This might be due to dependencies or configuration issues"
+          fi
+        shell: bash
+        continue-on-error: true
+
       - name: build-status-summary
         run: |
           echo "📊 构建状态总结："
@@ -141,17 +196,24 @@ jobs:
           echo ""
           echo "📱 iOS 应用程序状态："
           if [ -f "project/ios/demo.ipa" ]; then
-            echo "  ✅ demo.ipa - 可直接安装"
+            echo "  ✅ demo.ipa - 演示应用程序 (可直接安装)"
             ls -lh project/ios/demo.ipa
           else
             echo "  ❌ demo.ipa - 构建失败（可能缺少模型文件）"
           fi
           
           if [ -f "project/ios/Playground.ipa" ]; then
-            echo "  ✅ Playground.ipa - 可直接安装"
+            echo "  ✅ Playground.ipa - 测试应用程序 (可直接安装)"
             ls -lh project/ios/Playground.ipa
           else
             echo "  ❌ Playground.ipa - 构建失败（可能缺少模型文件）"
+          fi
+          
+          if [ -f "project/ios/MNNLLMChat.ipa" ]; then
+            echo "  ✅ MNNLLMChat.ipa - 大语言模型聊天应用 (可直接安装)"
+            ls -lh project/ios/MNNLLMChat.ipa
+          else
+            echo "  ❌ MNNLLMChat.ipa - 构建失败（可能缺少依赖或配置问题）"
           fi
           echo ""
           echo "💡 即使应用程序构建失败，MNN.framework 仍然可用于集成到其他项目中"
@@ -170,6 +232,9 @@ jobs:
             echo "=== Playground App ==="
             ls -lh project/ios/Playground.ipa || echo "Playground IPA not found"
             ls -lh project/ios/build/Release-iphoneos/ || echo "Playground build not found"
+            echo "=== MNNLLMChat App ==="
+            ls -lh project/ios/MNNLLMChat.ipa || echo "MNNLLMChat IPA not found"
+            ls -lh apps/iOS/MNNLLMChat/build/Release-iphoneos/ || echo "MNNLLMChat build not found"
 
       - name: upload-ios-apps
         uses: actions/upload-artifact@v4
@@ -187,10 +252,18 @@ jobs:
           echo ""
           echo "📦 生成的文件："
           echo "  • MNN.framework - MNN框架库"
-          echo "  • demo.ipa - 演示应用程序"
+          echo "  • demo.ipa - 基础演示应用程序"
           echo "  • Playground.ipa - 测试应用程序"
+          echo "  • MNNLLMChat.ipa - 🤖 大语言模型聊天应用 (主要推荐)"
           echo ""
-          echo "🔧 安装方法："
+          echo "🌟 MNNLLMChat 功能特色："
+          echo "  ✨ 纯本地运行，保护隐私"
+          echo "  🎯 多模态对话：文本、语音、图片"
+          echo "  � 本地模型管理和下载"
+          echo "  ⚡ 基准测试和性能监控"
+          echo "  💾 完整的对话历史记录"
+          echo ""
+          echo "�🔧 安装方法："
           echo "  1. 通过 Xcode 安装："
           echo "     - 在 Xcode 中打开 'Window' > 'Devices and Simulators'"
           echo "     - 选择你的设备"
@@ -198,7 +271,7 @@ jobs:
           echo ""
           echo "  2. 通过命令行安装 (需要ios-deploy)："
           echo "     npm install -g ios-deploy"
-          echo "     ios-deploy --bundle demo.ipa"
+          echo "     ios-deploy --bundle MNNLLMChat.ipa"
           echo ""
           echo "  3. 通过第三方工具："
           echo "     - 使用 3uTools, iMazing 等工具安装"
@@ -208,6 +281,7 @@ jobs:
           echo "  • 这些应用没有代码签名，只能在越狱设备或开发设备上安装"
           echo "  • 需要信任开发者证书才能运行"
           echo "  • 在设置 > 通用 > VPN与设备管理 中信任应用"
+          echo "  • MNNLLMChat 首次运行时需要下载语言模型文件"
 
 
 
